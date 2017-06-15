@@ -75,5 +75,5 @@ def configure() {
 		zwave.associationV1.associationSet(groupingIdentifier:3, nodeId:[zwaveHubNodeId]).format(),
         zwave.configurationV1.configurationSet(parameterNumber: 11, configurationValue: [1000], size: 1).format(),
         zwave.configurationV1.configurationGet(parameterNumber: 11).format()
-	],100)
+	],100) 
 }
