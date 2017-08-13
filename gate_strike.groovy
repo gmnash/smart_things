@@ -1,46 +1,66 @@
 metadata {
 	definition (name: "Gate Strike", namespace: "gmnash", author: "Graham Nash") {
     	capability "Momentary"
-	    capability "Configuration"
-		capability "Actuator"
-        capability "Switch"
         fingerprint mfr: "0084", prod: "0453", model: "0111"
 	}
+	// tile definitions
+	tiles {
+		standardTile("switch", "device.switch", width: 2, height: 2, canChangeIcon: true) {
+			state "off", label: '${name}', action: "momentary.push", icon: "st.switches.switch.off", backgroundColor: "#ffffff"
+			state "on", label: '${name}', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#79b821"
+		}
+        standardTile("contact", "device.contact", inactiveLabel: false) {
+			state "open", label: '${name}', icon: "st.contact.contact.open", backgroundColor: "#ffa81e"
+			state "closed", label: '${name}', icon: "st.contact.contact.closed", backgroundColor: "#79b821"
+		}
+        standardTile("refresh", "device.switch", inactiveLabel: false, decoration: "flat") {
+			state "default", label:'', action:"refresh.refresh", icon:"st.secondary.refresh"
+		}
+        valueTile("alarm", "device.alarm", inactiveLabel: false) {
+			state "alarm", label:'${currentValue}'
+		}
 
-    tiles(scale: 2) {
-        // standard tile with actions named
-        standardTile("switch", "device.switch", width: 2, height: 2, canChangeIcon: true) {
-            state "off", label: '${currentValue}', action: "switch.on",
-                  icon: "st.switches.switch.off", backgroundColor: "#ffffff"
-            state "on", label: '${currentValue}', action: "switch.off",
-                  icon: "st.switches.switch.on", backgroundColor: "#00a0dc"
-        }
-
-        // the "switch" tile will appear in the Things view
-        main("switch")
-
-        // the "switch" and "power" tiles will appear in the Device Details
-        // view (order is left-to-right, top-to-bottom)
-        details(["switch"])
-    }
+		main (["switch", "contact"])
+		details(["switch", "contact", "refresh", "alarm"])
+	}
 }
 
 def parse(String description) {
-    def result = null
-    def cmd = zwave.parse(description, [0x60: 3])
-    if (cmd) {
-        log.info "Parsed ${cmd}"
-        zwaveEvent(cmd)
-    } else {
-        log.info "Non-parsed event: ${description}"
-    }
-    result
+	def result = null
+	def cmd = zwave.parse(description, [0x20: 1, 0x84: 1, 0x30: 1, 0x70: 1])
+	if (cmd) {
+		result = createEvent(zwaveEvent(cmd))
+	}
+	log.debug "Parse returned ${result?.descriptionText}"
+	return result
+}
+
+def sensorValueEvent(Short value) {
+	if (value) {
+		createEvent(name: "contact", value: "open", descriptionText: "$device.displayName is open")
+	} else {
+		createEvent(name: "contact", value: "closed", descriptionText: "$device.displayName is closed")
+	}
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.sensorbinaryv1.SensorBinaryReport cmd) {
+	sensorValueEvent(cmd.sensorValue)
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicReport cmd) {
+	[name: "switch", value: cmd.value ? "on" : "off", type: "physical"]
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.switchbinaryv1.SwitchBinaryReport cmd) {
-	if (cmd.value == 0) {
-    	off()
-    }
+	[name: "switch", value: cmd.value ? "on" : "off", type: "digital"]
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.basicv1.BasicSet cmd) {
+	sensorValueEvent(cmd.value)
+}
+
+def zwaveEvent(physicalgraph.zwave.commands.alarmv1.AlarmReport cmd) {
+	sensorValueEvent(cmd.sensorState)
 }
 
 def zwaveEvent(physicalgraph.zwave.Command cmd) {
@@ -48,32 +68,31 @@ def zwaveEvent(physicalgraph.zwave.Command cmd) {
 	[:]
 }
 
-def on(){
-	log.info "ON"
-	delayBetween([
+def push() {
+	def cmds = [
 		zwave.basicV1.basicSet(value: 0xFF).format(),
+		zwave.switchBinaryV1.switchBinaryGet().format(),
+		"delay 3000",
+		zwave.basicV1.basicSet(value: 0x00).format(),
 		zwave.switchBinaryV1.switchBinaryGet().format()
-	], 100)
+	]
+}
+
+def on() {
+	push()
 }
 
 def off() {
-	log.info "OFF"
-    sendEvent (name: "switch", value: "off", isStateChange: true)
-    //delayBetween([
-	//	zwave.basicV1.basicSet(value: 0x00).format(),
-	//	zwave.switchBinaryV1.switchBinaryGet().format()
-	//],100)
+	[
+		zwave.basicV1.basicSet(value: 0x00).format(),
+		zwave.switchBinaryV1.switchBinaryGet().format()
+	]
 }
 
-// If you add the Configuration capability to your device type, this
-// command will be called right after the device joins to set
-// device-specific configuration commands.
+def poll() {
+	zwave.switchBinaryV1.switchBinaryGet().format()
+}
 
-def configure() {
-	log.info "Configuring...." //setting up to monitor power alarm and actuator duration
-	delayBetween([
-		zwave.associationV1.associationSet(groupingIdentifier:3, nodeId:[zwaveHubNodeId]).format(),
-        zwave.configurationV1.configurationSet(parameterNumber: 11, configurationValue: [1000], size: 1).format(),
-        zwave.configurationV1.configurationGet(parameterNumber: 11).format()
-	],100) 
+def refresh() {
+	zwave.switchBinaryV1.switchBinaryGet().format()
 }
